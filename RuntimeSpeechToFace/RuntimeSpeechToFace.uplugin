@@ -1,0 +1,30 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "RuntimeSpeechToFace",
+	"Description": "Runtime speech to face animation conversion",
+	"Category": "Other",
+	"CreatedBy": "weiyi",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "RuntimeSpeechToFace",
+			"Type": "Runtime",
+			"LoadingPhase": "PreLoadingScreen"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "MetaHuman",
+			"Enabled": true
+		}
+	]
+}
