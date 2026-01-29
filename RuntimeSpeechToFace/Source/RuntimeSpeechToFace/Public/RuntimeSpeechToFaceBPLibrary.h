@@ -10,6 +10,7 @@
 #include "AudioDrivenAnimationMood.h"
 #include "AudioDrivenAnimationConfig.h"
 #include "Pipeline/Pipeline.h"
+#include "Animation/Skeleton.h"
 #include "RuntimeSpeechToFaceBPLibrary.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRuntimeSpeechToFaceAsyncDelegate, UAnimSequence*, Anim);
@@ -28,17 +29,25 @@ public:
 	FRuntimeSpeechToFaceFailDelegate OnFailed;
 
 	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", DisplayName = "Speech To Face Anim"), Category = "RuntimeSpeechToFace")
-	static URuntimeSpeechToFaceAsync* SpeechToFaceAnim(UObject* WorldContextObject, USpeechSoundWave* SoundWave, EAudioDrivenAnimationMood Mood = EAudioDrivenAnimationMood::AutoDetect, float MoodIntensity = 1.0f, EAudioDrivenAnimationOutputControls AudioDrivenAnimationOutputControls = EAudioDrivenAnimationOutputControls::FullFace);
+	static URuntimeSpeechToFaceAsync* SpeechToFaceAnim(UObject* WorldContextObject, USoundWave* SoundWave, USkeleton* Skeleton, EAudioDrivenAnimationMood Mood = EAudioDrivenAnimationMood::AutoDetect, float MoodIntensity = 1.0f, EAudioDrivenAnimationOutputControls AudioDrivenAnimationOutputControls = EAudioDrivenAnimationOutputControls::FullFace);
 
 	void Activate() override;
 
 private:
-	TObjectPtr<USpeechSoundWave> SoundWave;
+	void FrameComplete(TSharedPtr<UE::MetaHuman::Pipeline::FPipelineData> InPipelineData);
+	void ProcessComplete(TSharedPtr<UE::MetaHuman::Pipeline::FPipelineData> InPipelineData);
+
+private:
+	TObjectPtr<USoundWave> SoundWave;
+	TObjectPtr<USkeleton> Skeleton;
 	EAudioDrivenAnimationMood Mood = EAudioDrivenAnimationMood::AutoDetect;
 	float MoodIntensity = 1.0f;
 	EAudioDrivenAnimationOutputControls AudioDrivenAnimationOutputControls = EAudioDrivenAnimationOutputControls::FullFace;
 
 	TSharedPtr<UE::MetaHuman::Pipeline::FPipeline> Pipeline;
+	FString AnimationResultsPinName;
+
+	TArray64<struct FFrameAnimationData> AnimationData;
 
 private:
 	static TSharedPtr<UE::MetaHuman::Pipeline::FSpeechToAnimNode> SpeechToAnimSolver;

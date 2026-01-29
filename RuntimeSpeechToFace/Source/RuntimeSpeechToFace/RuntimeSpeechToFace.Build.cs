@@ -43,7 +43,6 @@ public class RuntimeSpeechToFace : ModuleRules
 				"SlateCore",
 				"MetaHumanPipeline",
 				"MetaHumanPipelineCore",
-				"MetaHumanPerformance",
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);
