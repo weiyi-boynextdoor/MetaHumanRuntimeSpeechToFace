@@ -11,9 +11,10 @@
 #include "AudioDrivenAnimationConfig.h"
 #include "Pipeline/Pipeline.h"
 #include "Animation/Skeleton.h"
+#include "RuntimeAnimation.h"
 #include "RuntimeSpeechToFaceBPLibrary.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRuntimeSpeechToFaceAsyncDelegate, UAnimSequence*, Anim);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRuntimeSpeechToFaceAsyncDelegate, URuntimeAnimation*, Anim);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRuntimeSpeechToFaceFailDelegate, FString, Reason);
 
 UCLASS()

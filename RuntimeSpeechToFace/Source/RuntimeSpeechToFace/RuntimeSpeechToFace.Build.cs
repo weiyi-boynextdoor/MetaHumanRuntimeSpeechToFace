@@ -43,8 +43,14 @@ public class RuntimeSpeechToFace : ModuleRules
 				"SlateCore",
 				"MetaHumanPipeline",
 				"MetaHumanPipelineCore",
-				// ... add private dependencies that you statically link with here ...	
+				"AnimGraphRuntime",
+				// ... add private dependencies that you statically link with here ...
 			}
-			);
+		);
+
+		if (Target.Type == TargetType.Editor)
+		{
+			PublicDependencyModuleNames.Add("UnrealEd");
+		}
 	}
 }
