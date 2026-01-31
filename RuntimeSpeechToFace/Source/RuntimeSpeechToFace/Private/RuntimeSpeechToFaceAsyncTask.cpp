@@ -80,6 +80,15 @@ void URuntimeSpeechToFaceAsync::Activate()
 	}
 }
 
+void URuntimeSpeechToFaceAsync::BeginDestroy()
+{
+	if (Pipeline)
+	{
+		bIsProcessing = false;
+	}
+	Super::BeginDestroy();
+}
+
 void URuntimeSpeechToFaceAsync::FrameComplete(TSharedPtr<UE::MetaHuman::Pipeline::FPipelineData> InPipelineData)
 {
 	const int32 FrameNumber = InPipelineData->GetFrameNumber();
@@ -123,6 +132,7 @@ void URuntimeSpeechToFaceAsync::ProcessComplete(TSharedPtr<UE::MetaHuman::Pipeli
 	}
 
 	OnCompleted.Broadcast(Anim, TEXT("Success"));
+	Pipeline.Reset();
 	bIsProcessing = false;
 	SetReadyToDestroy();
 }

@@ -33,6 +33,8 @@ public:
 
 	void Activate() override;
 
+	void BeginDestroy() override;
+
 private:
 	void FrameComplete(TSharedPtr<UE::MetaHuman::Pipeline::FPipelineData> InPipelineData);
 	void ProcessComplete(TSharedPtr<UE::MetaHuman::Pipeline::FPipelineData> InPipelineData);
@@ -49,7 +51,7 @@ private:
 
 	TArray64<struct FFrameAnimationData> AnimationData;
 
-private:
+public:
 	static TSharedPtr<UE::MetaHuman::Pipeline::FSpeechToAnimNode> SpeechToAnimSolver;
 	static bool bIsProcessing;
 };
