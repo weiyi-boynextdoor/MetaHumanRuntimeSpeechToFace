@@ -12,10 +12,9 @@
 #include "Pipeline/Pipeline.h"
 #include "Animation/Skeleton.h"
 #include "RuntimeAnimation.h"
-#include "RuntimeSpeechToFaceBPLibrary.generated.h"
+#include "RuntimeSpeechToFaceAsyncTask.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRuntimeSpeechToFaceAsyncDelegate, URuntimeAnimation*, Anim);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRuntimeSpeechToFaceFailDelegate, FString, Reason);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FRuntimeSpeechToFaceAsyncDelegate, URuntimeAnimation*, Anim, FString, Reason);
 
 UCLASS()
 class URuntimeSpeechToFaceAsync : public UBlueprintAsyncActionBase
@@ -27,7 +26,7 @@ public:
 	FRuntimeSpeechToFaceAsyncDelegate OnCompleted;
 
 	UPROPERTY(BlueprintAssignable)
-	FRuntimeSpeechToFaceFailDelegate OnFailed;
+	FRuntimeSpeechToFaceAsyncDelegate OnFailed;
 
 	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", DisplayName = "Speech To Face Anim"), Category = "RuntimeSpeechToFace")
 	static URuntimeSpeechToFaceAsync* SpeechToFaceAnim(UObject* WorldContextObject, USoundWave* SoundWave, USkeleton* Skeleton, EAudioDrivenAnimationMood Mood = EAudioDrivenAnimationMood::AutoDetect, float MoodIntensity = 1.0f, EAudioDrivenAnimationOutputControls AudioDrivenAnimationOutputControls = EAudioDrivenAnimationOutputControls::FullFace);
