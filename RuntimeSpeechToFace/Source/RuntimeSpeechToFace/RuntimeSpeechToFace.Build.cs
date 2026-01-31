@@ -44,6 +44,10 @@ public class RuntimeSpeechToFace : ModuleRules
 				"MetaHumanPipeline",
 				"MetaHumanPipelineCore",
 				"AnimGraphRuntime",
+				"TargetPlatform",
+				"NNE",
+				"SignalProcessing",
+				"AudioPlatformConfiguration",
 				// ... add private dependencies that you statically link with here ...
 			}
 		);

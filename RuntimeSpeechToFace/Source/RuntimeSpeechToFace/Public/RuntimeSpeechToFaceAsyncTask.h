@@ -12,6 +12,7 @@
 #include "Pipeline/Pipeline.h"
 #include "Animation/Skeleton.h"
 #include "RuntimeAnimation.h"
+#include "NNERuntimeCPU.h"
 #include "RuntimeSpeechToFaceAsyncTask.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FRuntimeSpeechToFaceAsyncDelegate, URuntimeAnimation*, Anim, FString, Reason);
@@ -54,6 +55,9 @@ private:
 public:
 	static TSharedPtr<UE::MetaHuman::Pipeline::FSpeechToAnimNode> SpeechToAnimSolver;
 	static bool bIsProcessing;
+
+	static TSharedPtr<UE::NNE::IModelInstanceCPU> AudioExtractor;
+	static TSharedPtr<UE::NNE::IModelInstanceCPU> RigLogicPredictor;
 };
 
 /* 
