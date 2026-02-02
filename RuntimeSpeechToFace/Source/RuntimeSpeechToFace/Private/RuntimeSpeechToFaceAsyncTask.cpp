@@ -25,6 +25,8 @@ static constexpr float RigLogicPredictorMaxAudioSamples = AudioEncoderSampleRate
 static constexpr float RigLogicPredictorFrameDuration = 1.f / RigLogicPredictorOutputFps;
 static constexpr float SamplesPerFrame = AudioEncoderSampleRateHz * RigLogicPredictorFrameDuration;
 
+static constexpr int32 StreamBufferSize = 19200;
+
 TSharedPtr<UE::NNE::IModelInstanceCPU> URuntimeSpeechToFaceAsync::AudioExtractor;
 TSharedPtr<UE::NNE::IModelInstanceCPU> URuntimeSpeechToFaceAsync::RigLogicPredictor;
 
@@ -101,14 +103,11 @@ static bool GetImportedSoundWaveData(USoundWave* SoundWave, TArray<uint8>& OutRa
 	OutRawPCMData.Reserve(BufferLen);
 
 	FName RuntimeFormat = SoundWave->GetRuntimeFormat();
-	if (!SoundWave->HasCompressedData(RuntimeFormat))
-	{
+	TArray<uint8> RawPCMData;
+
 #if WITH_EDITOR
-		return SoundWave->GetImportedSoundWaveData(OutRawPCMData, OutSampleRate, OutNumChannels);
-#else
-		//return false;
+	SoundWave->GetImportedSoundWaveData(RawPCMData, OutSampleRate, OutNumChannels);
 #endif
-	}
 
 	FByteBulkData* BulkData = SoundWave->GetCompressedData(RuntimeFormat);
 	if (!BulkData || BulkData->GetBulkDataSize() <= 0)
@@ -139,10 +138,10 @@ static bool GetImportedSoundWaveData(USoundWave* SoundWave, TArray<uint8>& OutRa
 	// Stream read
 	while (OutRawPCMData.Num() < BufferLen)
 	{
-		int32 NumBytesStreamed = 19200;
+		int32 NumBytesStreamed = FMath::Min(StreamBufferSize, BufferLen - OutRawPCMData.Num());
 		int OldSize = OutRawPCMData.Num();
 		OutRawPCMData.AddZeroed(NumBytesStreamed);
-		AudioInfo->StreamCompressedData(OutRawPCMData.GetData() + OldSize, false, 19200, NumBytesStreamed);
+		AudioInfo->StreamCompressedData(OutRawPCMData.GetData() + OldSize, false, NumBytesStreamed, NumBytesStreamed);
 	}
 
 	delete AudioInfo;
