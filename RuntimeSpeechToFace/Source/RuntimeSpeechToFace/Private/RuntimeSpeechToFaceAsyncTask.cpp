@@ -10,6 +10,7 @@
 #include "AudioResampler.h"
 #include "SampleBuffer.h"
 #include "DataDefs.h"
+#include "GuiToRawControlsUtils.h"
 
 using FloatSamples = Audio::VectorOps::FAlignedFloatBuffer;
 
@@ -21,11 +22,10 @@ static constexpr float RigLogicPredictorMaxAudioSamples = AudioEncoderSampleRate
 static constexpr float RigLogicPredictorFrameDuration = 1.f / RigLogicPredictorOutputFps;
 static constexpr float SamplesPerFrame = AudioEncoderSampleRateHz * RigLogicPredictorFrameDuration;
 
-TSharedPtr<UE::MetaHuman::Pipeline::FSpeechToAnimNode> URuntimeSpeechToFaceAsync::SpeechToAnimSolver;
 TSharedPtr<UE::NNE::IModelInstanceCPU> URuntimeSpeechToFaceAsync::AudioExtractor;
 TSharedPtr<UE::NNE::IModelInstanceCPU> URuntimeSpeechToFaceAsync::RigLogicPredictor;
 
-bool URuntimeSpeechToFaceAsync::bIsProcessing = false;
+bool URuntimeSpeechToFaceAsync::bHasProcessingInstance = false;
 
 static TSharedPtr<UE::NNE::IModelInstanceCPU> TryLoadModelData(const FSoftObjectPath& InModelAssetPath)
 {
@@ -417,8 +417,6 @@ void URuntimeSpeechToFaceAsync::Activate()
 {
 	if (!(AudioExtractor.IsValid() && RigLogicPredictor.IsValid()))
 	{
-		SpeechToAnimSolver = MakeShared<UE::MetaHuman::Pipeline::FSpeechToAnimNode>(TEXT("RuntimeSpeechToFace_SpeechToAnimNode"));
-		SpeechToAnimSolver->LoadModels();
 		FAudioDrivenAnimationModels ModelNames;
 		AudioExtractor = TryLoadModelData(ModelNames.AudioEncoder);
 		RigLogicPredictor = TryLoadModelData(ModelNames.AnimationDecoder);
@@ -431,7 +429,7 @@ void URuntimeSpeechToFaceAsync::Activate()
 		return;
 	}
 
-	if (bIsProcessing)
+	if (bHasProcessingInstance)
 	{
 		OnFailed.Broadcast(nullptr, TEXT("RuntimeSpeechToFaceAsync: Already processing another request."));
 		SetReadyToDestroy();
@@ -446,14 +444,12 @@ void URuntimeSpeechToFaceAsync::Activate()
 	}
 
 	bIsProcessing = true;
+	bHasProcessingInstance = true;
 
 	const int NumFrames = static_cast<int>(SoundWave->Duration * 30);
 
 	Anim = NewObject<URuntimeAnimation>(GetTransientPackage(), URuntimeAnimation::StaticClass(), TEXT("FaceAnim"));
 	Anim->Duration = SoundWave->Duration;
-
-	AnimationData.Reset(NumFrames);
-	AnimationData.AddDefaulted(NumFrames);
 
 	// Step 1: get PCM data
 	TArray<uint8> PcmData;
@@ -492,133 +488,37 @@ void URuntimeSpeechToFaceAsync::Activate()
 
 	// Step 4: resample animation
 	TArray<FSpeech2Face::FAnimationFrame> OutAnimationData = ResampleAnimation(RigLogicValues, RigControlNames, RigControlNames.Num(), 30.0f);
-	if (OutAnimationData.Num())
-	{
-		Anim->FloatCurves.Reserve(OutAnimationData[0].Num());
-		for (const auto& Sample : OutAnimationData[0])
-		{
-			Anim->FloatCurves.Add(FFloatCurve(*Sample.Key, 0));
-		}
-	}
 	for (int32 FrameIndex = 0; FrameIndex < NumFrames; ++FrameIndex)
 	{
+		TMap<FString, float> AnimationFrame = GuiToRawControlsUtils::ConvertGuiToRawControls(OutAnimationData[FrameIndex]);
+		if (FrameIndex == 0)
+		{
+			for (const auto& Sample : AnimationFrame)
+			{
+				Anim->FloatCurves.Add(FFloatCurve(*Sample.Key, 0));
+			}
+		}
+	
 		int CurveIndex = 0;
 		const float FrameTime = FrameIndex / 30.0f;
-		for (const TPair<FString, float>& Sample : OutAnimationData[FrameIndex])
+		for (const TPair<FString, float>& Sample : AnimationFrame)
 		{
 			Anim->FloatCurves[CurveIndex].FloatCurve.AddKey(FrameTime, Sample.Value);
 			++CurveIndex;
 		}
 	}
 
-	/*OnCompleted.Broadcast(Anim, TEXT("Success"));
-	Pipeline.Reset();
-	bIsProcessing = false;
+	OnCompleted.Broadcast(Anim, TEXT("Success"));
+	bHasProcessingInstance = false;
 	SetReadyToDestroy();
-	return;*/
-
-	SpeechToAnimSolver->SetMood(Mood);
-	SpeechToAnimSolver->SetMoodIntensity(MoodIntensity);
-	SpeechToAnimSolver->SetOutputControls(AudioDrivenAnimationOutputControls);
-
-	Pipeline = MakeShared<UE::MetaHuman::Pipeline::FPipeline>();
-	Pipeline->AddNode(SpeechToAnimSolver);
-	SpeechToAnimSolver->Audio = SoundWave;
-	SpeechToAnimSolver->bDownmixChannels = true;
-	SpeechToAnimSolver->AudioChannelIndex = 0;
-	SpeechToAnimSolver->OffsetSec = 0;
-	SpeechToAnimSolver->FrameRate = 30;
-	SpeechToAnimSolver->ProcessingStartFrameOffset = 0;
-	SpeechToAnimSolver->bGenerateBlinks = true;
-
-	AnimationResultsPinName = SpeechToAnimSolver-> Name + ".Animation Out";
-
-	UE::MetaHuman::Pipeline::FFrameComplete OnFrameComplete;
-	UE::MetaHuman::Pipeline::FProcessComplete OnProcessComplete;
-	OnFrameComplete.AddUObject(this, &URuntimeSpeechToFaceAsync::FrameComplete);
-	OnProcessComplete.AddUObject(this, &URuntimeSpeechToFaceAsync::ProcessComplete);
-
-	
-
-	UE::MetaHuman::Pipeline::FPipelineRunParameters PipelineRunParameters;
-	PipelineRunParameters.SetStartFrame(0);
-	PipelineRunParameters.SetEndFrame(NumFrames);
-	PipelineRunParameters.SetOnFrameComplete(OnFrameComplete);
-	PipelineRunParameters.SetOnProcessComplete(OnProcessComplete);
-	PipelineRunParameters.SetGpuToUse(UE::MetaHuman::Pipeline::FPipeline::PickPhysicalDevice());
-	PipelineRunParameters.SetMode(UE::MetaHuman::Pipeline::EPipelineMode::PushAsyncNodes);
-	Pipeline->Run(PipelineRunParameters);
+	return;
 }
 
 void URuntimeSpeechToFaceAsync::BeginDestroy()
 {
-	if (Pipeline)
+	if (bIsProcessing)
 	{
-		bIsProcessing = false;
+		bHasProcessingInstance = false;
 	}
 	Super::BeginDestroy();
 }
-
-void URuntimeSpeechToFaceAsync::FrameComplete(TSharedPtr<UE::MetaHuman::Pipeline::FPipelineData> InPipelineData)
-{
-	const int32 FrameNumber = InPipelineData->GetFrameNumber();
-	UE_LOG(LogTemp, Verbose, TEXT("Processed Frame %d"), FrameNumber);
-
-	FFrameAnimationData& AnimationFrame = AnimationData[FrameNumber];
-	AnimationFrame = InPipelineData->MoveData<FFrameAnimationData>(AnimationResultsPinName);
-}
-
-void URuntimeSpeechToFaceAsync::ProcessComplete(TSharedPtr<UE::MetaHuman::Pipeline::FPipelineData> InPipelineData)
-{
-	const FFrameRate FrameRate{ 30, 1 };
-	const int NumFrames = static_cast<int>(SoundWave->Duration * 30);
-
-	Anim = NewObject<URuntimeAnimation>(GetTransientPackage(), URuntimeAnimation::StaticClass(), TEXT("FaceAnim"));
-	Anim->Duration = SoundWave->Duration;
-
-	for (int32 FrameIndex = 0; FrameIndex < NumFrames; ++FrameIndex)
-	{
-		const float FrameTime = FrameIndex / 30.0f;
-		FFrameAnimationData& FrameAnimData = AnimationData[FrameIndex];
-		if (!FrameAnimData.ContainsData())
-		{
-			continue;
-		}
-		if (Anim->FloatCurves.Num() == 0)
-		{
-			Anim->FloatCurves.Reserve(FrameAnimData.AnimationData.Num());
-			for (const TPair<FString, float>& Sample : FrameAnimData.AnimationData)
-			{
-				FName Key(*Sample.Key);
-				Anim->FloatCurves.Add(FFloatCurve(*Sample.Key, 0));
-			}
-		}
-		int CurveIndex = 0;
-		for (const TPair<FString, float>& Sample : FrameAnimData.AnimationData)
-		{
-			Anim->FloatCurves[CurveIndex].FloatCurve.AddKey(FrameTime, Sample.Value);
-			++CurveIndex;
-		}		
-	}
-
-	OnCompleted.Broadcast(Anim, TEXT("Success"));
-	Pipeline.Reset();
-	bIsProcessing = false;
-	SetReadyToDestroy();
-}
-
-URuntimeSpeechToFaceBPLibrary::URuntimeSpeechToFaceBPLibrary(const FObjectInitializer& ObjectInitializer)
-: Super(ObjectInitializer)
-{
-}
-
-bool URuntimeSpeechToFaceBPLibrary::Initialize()
-{
-	return false;
-}
-
-float URuntimeSpeechToFaceBPLibrary::RuntimeSpeechToFaceSampleFunction(float Param)
-{
-	return -1;
-}
-
