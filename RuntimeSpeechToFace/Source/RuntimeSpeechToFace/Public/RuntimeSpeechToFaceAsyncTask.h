@@ -5,11 +5,8 @@
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintAsyncActionBase.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
-#include "Nodes/SpeechToAnimNode.h"
 #include "SpeechSoundWave.h"
 #include "AudioDrivenAnimationMood.h"
-#include "AudioDrivenAnimationConfig.h"
-#include "Pipeline/Pipeline.h"
 #include "Animation/Skeleton.h"
 #include "RuntimeAnimation.h"
 #include "NNERuntimeCPU.h"
@@ -30,15 +27,11 @@ public:
 	FRuntimeSpeechToFaceAsyncDelegate OnFailed;
 
 	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", DisplayName = "Speech To Face Anim"), Category = "RuntimeSpeechToFace")
-	static URuntimeSpeechToFaceAsync* SpeechToFaceAnim(UObject* WorldContextObject, USoundWave* SoundWave, USkeleton* Skeleton, EAudioDrivenAnimationMood Mood = EAudioDrivenAnimationMood::AutoDetect, float MoodIntensity = 1.0f, EAudioDrivenAnimationOutputControls AudioDrivenAnimationOutputControls = EAudioDrivenAnimationOutputControls::FullFace);
+	static URuntimeSpeechToFaceAsync* SpeechToFaceAnim(UObject* WorldContextObject, USoundWave* SoundWave, USkeleton* Skeleton, EAudioDrivenAnimationMood Mood = EAudioDrivenAnimationMood::AutoDetect, float MoodIntensity = 1.0f);
 
 	void Activate() override;
 
 	void BeginDestroy() override;
-
-private:
-	void FrameComplete(TSharedPtr<UE::MetaHuman::Pipeline::FPipelineData> InPipelineData);
-	void ProcessComplete(TSharedPtr<UE::MetaHuman::Pipeline::FPipelineData> InPipelineData);
 
 private:
 	bool bIsProcessing = false;
@@ -46,7 +39,6 @@ private:
 	TObjectPtr<USkeleton> Skeleton;
 	EAudioDrivenAnimationMood Mood = EAudioDrivenAnimationMood::AutoDetect;
 	float MoodIntensity = 1.0f;
-	EAudioDrivenAnimationOutputControls AudioDrivenAnimationOutputControls = EAudioDrivenAnimationOutputControls::FullFace;
 
 	TObjectPtr<URuntimeAnimation> Anim;
 

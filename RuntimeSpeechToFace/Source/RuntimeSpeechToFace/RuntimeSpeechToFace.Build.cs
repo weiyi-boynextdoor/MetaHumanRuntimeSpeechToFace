@@ -30,7 +30,6 @@ public class RuntimeSpeechToFace : ModuleRules
 				"Engine",
 				"AudioExtensions",
 				"MetaHumanCoreTech",
-				"MetaHumanSpeech2Face",
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
@@ -41,10 +40,7 @@ public class RuntimeSpeechToFace : ModuleRules
 			{
 				"Slate",
 				"SlateCore",
-				"MetaHumanPipeline",
-				"MetaHumanPipelineCore",
 				"AnimGraphRuntime",
-				"TargetPlatform",
 				"NNE",
 				"SignalProcessing",
 				"AudioPlatformConfiguration",

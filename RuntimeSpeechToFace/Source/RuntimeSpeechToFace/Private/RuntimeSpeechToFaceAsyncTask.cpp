@@ -11,8 +11,11 @@
 #include "SampleBuffer.h"
 #include "DataDefs.h"
 #include "GuiToRawControlsUtils.h"
+#include "UObject/SoftObjectPath.h"
 
 using FloatSamples = Audio::VectorOps::FAlignedFloatBuffer;
+
+using FAnimationFrame = TMap<FString, float>;
 
 static const FName RootBoneName = TEXT("root");
 
@@ -75,7 +78,7 @@ static TSharedPtr<UE::NNE::IModelInstanceCPU> TryLoadModelData(const FSoftObject
 	return ModelInstance;
 }
 
-URuntimeSpeechToFaceAsync* URuntimeSpeechToFaceAsync::SpeechToFaceAnim(UObject* WorldContextObject, USoundWave* SoundWave, USkeleton* Skeleton, EAudioDrivenAnimationMood Mood, float MoodIntensity, EAudioDrivenAnimationOutputControls AudioDrivenAnimationOutputControls)
+URuntimeSpeechToFaceAsync* URuntimeSpeechToFaceAsync::SpeechToFaceAnim(UObject* WorldContextObject, USoundWave* SoundWave, USkeleton* Skeleton, EAudioDrivenAnimationMood Mood, float MoodIntensity)
 {
 	URuntimeSpeechToFaceAsync* Action = NewObject<URuntimeSpeechToFaceAsync>();
 	Action->RegisterWithGameInstance(WorldContextObject);
@@ -83,7 +86,6 @@ URuntimeSpeechToFaceAsync* URuntimeSpeechToFaceAsync::SpeechToFaceAnim(UObject* 
 	Action->Skeleton = Skeleton;
 	Action->Mood = Mood;
 	Action->MoodIntensity = MoodIntensity;
-	Action->AudioDrivenAnimationOutputControls = AudioDrivenAnimationOutputControls;
 	return Action;
 }
 
@@ -377,14 +379,14 @@ static bool RunPredictor(
 	return true;
 }
 
-TArray<FSpeech2Face::FAnimationFrame> ResampleAnimation(TArrayView<const float> InRawAnimation, TArrayView<const FString> InRigControlNames, uint32 ControlNum, float InOutputFps)
+TArray<FAnimationFrame> ResampleAnimation(TArrayView<const float> InRawAnimation, TArrayView<const FString> InRigControlNames, uint32 ControlNum, float InOutputFps)
 {
 	const uint32 RawFrameCount = InRawAnimation.Num() / ControlNum;
 	const float AnimationLengthSec = RawFrameCount * RigLogicPredictorFrameDuration;
 	const uint32 ResampledFrameCount = FMath::FloorToInt32(AnimationLengthSec * InOutputFps);
 
 	// Resample using linear interpolation
-	TArray<FSpeech2Face::FAnimationFrame> ResampledAnimation;
+	TArray<FAnimationFrame> ResampledAnimation;
 	ResampledAnimation.AddDefaulted(ResampledFrameCount);
 
 	for (uint32 ResampledFrameIndex = 0; ResampledFrameIndex < ResampledFrameCount; ++ResampledFrameIndex)
@@ -417,9 +419,10 @@ void URuntimeSpeechToFaceAsync::Activate()
 {
 	if (!(AudioExtractor.IsValid() && RigLogicPredictor.IsValid()))
 	{
-		FAudioDrivenAnimationModels ModelNames;
-		AudioExtractor = TryLoadModelData(ModelNames.AudioEncoder);
-		RigLogicPredictor = TryLoadModelData(ModelNames.AnimationDecoder);
+		FSoftObjectPath AudioEncoder = FString(TEXT("/MetaHuman/Speech2Face/NNE_AudioDrivenAnimation_AudioEncoder.NNE_AudioDrivenAnimation_AudioEncoder"));
+		FSoftObjectPath AnimationDecoder = FString(TEXT("/MetaHuman/Speech2Face/NNE_AudioDrivenAnimation_AnimationDecoder.NNE_AudioDrivenAnimation_AnimationDecoder"));
+		AudioExtractor = TryLoadModelData(AudioEncoder);
+		RigLogicPredictor = TryLoadModelData(AnimationDecoder);
 	}
 
 	if (!(AudioExtractor.IsValid() && RigLogicPredictor.IsValid()))
@@ -487,7 +490,7 @@ void URuntimeSpeechToFaceAsync::Activate()
 	}
 
 	// Step 4: resample animation
-	TArray<FSpeech2Face::FAnimationFrame> OutAnimationData = ResampleAnimation(RigLogicValues, RigControlNames, RigControlNames.Num(), 30.0f);
+	TArray<FAnimationFrame> OutAnimationData = ResampleAnimation(RigLogicValues, RigControlNames, RigControlNames.Num(), 30.0f);
 	for (int32 FrameIndex = 0; FrameIndex < NumFrames; ++FrameIndex)
 	{
 		TMap<FString, float> AnimationFrame = GuiToRawControlsUtils::ConvertGuiToRawControls(OutAnimationData[FrameIndex]);
