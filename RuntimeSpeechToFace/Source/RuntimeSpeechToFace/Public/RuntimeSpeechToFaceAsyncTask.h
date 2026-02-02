@@ -52,6 +52,8 @@ private:
 
 	TArray64<struct FFrameAnimationData> AnimationData;
 
+	TObjectPtr<URuntimeAnimation> Anim;
+
 public:
 	static TSharedPtr<UE::MetaHuman::Pipeline::FSpeechToAnimNode> SpeechToAnimSolver;
 	static bool bIsProcessing;

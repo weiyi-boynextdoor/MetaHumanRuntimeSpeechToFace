@@ -9,11 +9,17 @@
 #include "NNE.h"
 #include "AudioResampler.h"
 #include "SampleBuffer.h"
+#include "DataDefs.h"
 
 using FloatSamples = Audio::VectorOps::FAlignedFloatBuffer;
 
 static const FName RootBoneName = TEXT("root");
+
 static constexpr uint32 AudioEncoderSampleRateHz = 16000;
+static constexpr float RigLogicPredictorOutputFps = 50.0f;
+static constexpr float RigLogicPredictorMaxAudioSamples = AudioEncoderSampleRateHz * 30;
+static constexpr float RigLogicPredictorFrameDuration = 1.f / RigLogicPredictorOutputFps;
+static constexpr float SamplesPerFrame = AudioEncoderSampleRateHz * RigLogicPredictorFrameDuration;
 
 TSharedPtr<UE::MetaHuman::Pipeline::FSpeechToAnimNode> URuntimeSpeechToFaceAsync::SpeechToAnimSolver;
 TSharedPtr<UE::NNE::IModelInstanceCPU> URuntimeSpeechToFaceAsync::AudioExtractor;
@@ -240,6 +246,173 @@ static bool GetFloatSamples(const TWeakObjectPtr<const USoundWave>& SoundWave, c
 	return true;
 }
 
+static bool ExtractAudioFeatures(const FloatSamples& Samples, const TSharedPtr<UE::NNE::IModelInstanceCPU>& AudioExtractor, TArray<float>& OutAudioData)
+{
+	using namespace UE::NNE;
+
+	OutAudioData.Empty((Samples.Num() / SamplesPerFrame) * 512);
+
+	// Restrict extracting of audio features to 30 second chunks as the model does not support more
+	for (int32 SampleIndex = 0; SampleIndex < Samples.Num(); SampleIndex += RigLogicPredictorMaxAudioSamples)
+	{
+		const uint32 SamplesCount = FMath::Clamp(Samples.Num() - SampleIndex, 0, RigLogicPredictorMaxAudioSamples);
+
+		TArray<uint32, TInlineAllocator<2>> ExtractorInputShapesData = { 1, SamplesCount };
+		TArray<FTensorShape, TInlineAllocator<1>> ExtractorInputShapes = { FTensorShape::Make(ExtractorInputShapesData) };
+		if (AudioExtractor->SetInputTensorShapes(ExtractorInputShapes) != IModelInstanceCPU::ESetInputTensorShapesStatus::Ok)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Could not set the audio extractor input tensor shapes"));
+			return false;
+		}
+
+		// Todo: last frame of the last chunk will not be complete (if not multiple of SamplesPerFrame). Should we ceil/pad/0-fill? 
+		const uint32 NumFrames = static_cast<uint32>(SamplesCount / SamplesPerFrame);
+		TArray<uint32, TInlineAllocator<3>> ExtractorOutputShapeData = { 1, NumFrames, 512 };
+		FTensorShape ExtractorOutputShape = FTensorShape::Make(ExtractorOutputShapeData);
+		TArray<float> ExtractorOutputData;
+		ExtractorOutputData.SetNumUninitialized(ExtractorOutputShape.Volume());
+
+		TArray<FTensorBindingCPU, TInlineAllocator<1>> ExtractorInputBindings = { {(void*)(Samples.GetData() + SampleIndex), SamplesCount * sizeof(float)} };
+		TArray<FTensorBindingCPU, TInlineAllocator<1>> ExtractorOutputBindings = { {(void*)ExtractorOutputData.GetData(), ExtractorOutputData.Num() * sizeof(float)} };
+		if (AudioExtractor->RunSync(ExtractorInputBindings, ExtractorOutputBindings) != IModelInstanceCPU::ESetInputTensorShapesStatus::Ok)
+		{
+			UE_LOG(LogTemp, Error, TEXT("The audio extractor NNE model failed to execute"));
+			return false;
+		}
+
+		OutAudioData.Append(ExtractorOutputData.GetData(), ExtractorOutputData.Num());
+	}
+	return true;
+}
+
+static bool RunPredictor(
+	const TSharedPtr<UE::NNE::IModelInstanceCPU>& RigLogicPredictor,
+	const uint32 InFaceControlNum,
+	const uint32 InBlinkControlNum,
+	const uint32 InSamplesNum,
+	const TArray<float>& InAudioData,
+	const EAudioDrivenAnimationMood& Mood,
+	const float DesiredMoodIntensity,
+	TArray<float>& OutRigLogicValues,
+	TArray<float>& OutRigLogicBlinkValues,
+	TArray<float>& OutRigLogicHeadValues
+)
+{
+	using namespace UE::NNE;
+
+	const uint32 NumFrames = static_cast<uint32>(InSamplesNum / SamplesPerFrame);
+	TArray<uint32, TInlineAllocator<2>> AudioShapeData = { 1, NumFrames, 512 };
+
+	int32 MoodIndex = Mood == EAudioDrivenAnimationMood::AutoDetect ? -1 : static_cast<int32>(Mood);
+	const TArray<int32, TInlineAllocator<1>> MoodIndexArray = { MoodIndex, };
+	TArray<uint32, TInlineAllocator<1>> MoodIndexShapeData = { 1, };
+
+	const TArray<float, TInlineAllocator<1>> MoodIntensityArray = { DesiredMoodIntensity, };
+	TArray<uint32, TInlineAllocator<1>> MoodIntensityShapeData = { 1, };
+
+	TArray<FTensorShape, TInlineAllocator<3>> InputTensorShapes = {
+		FTensorShape::Make(AudioShapeData),
+		FTensorShape::Make(MoodIndexShapeData),
+		FTensorShape::Make(MoodIntensityShapeData)
+	};
+
+	check(RigLogicPredictor);
+
+	if (RigLogicPredictor->SetInputTensorShapes(InputTensorShapes) != IModelInstanceCPU::ESetInputTensorShapesStatus::Ok)
+	{
+		return false;
+	}
+
+	// Bind the inputs
+
+	// Tensor binding requires non-const void* - we're trusting it not to mutate the input data.
+	void* AudioDataPtr = const_cast<void*>(static_cast<const void*>(InAudioData.GetData()));
+	void* MoodIndexDataPtr = const_cast<void*>(static_cast<const void*>(MoodIndexArray.GetData()));
+	void* MoodIntensityDataPtr = const_cast<void*>(static_cast<const void*>(MoodIntensityArray.GetData()));
+
+	TArray<FTensorBindingCPU, TInlineAllocator<3>> InputBindings = {
+		{AudioDataPtr, InAudioData.Num() * sizeof(float)},
+		{MoodIndexDataPtr, MoodIndexArray.Num() * sizeof(float)},
+		{MoodIntensityDataPtr, MoodIntensityArray.Num() * sizeof(float)}
+	};
+
+	// Bind the outputs
+	TArray<float> FaceParameters;
+	TArray<uint32, TInlineAllocator<3>> FaceParametersShapeData = { 1, NumFrames,  InFaceControlNum };
+	TArray<FTensorShape, TInlineAllocator<1>> FaceParametersShape = { FTensorShape::Make(FaceParametersShapeData) };
+	FaceParameters.SetNumUninitialized(FaceParametersShape[0].Volume());
+
+	TArray<float> BlinkParameters;
+	TArray<uint32, TInlineAllocator<3>> BlinkParametersShapeData = { 1, NumFrames,  InBlinkControlNum };
+	TArray<FTensorShape, TInlineAllocator<1>> BlinkParametersShape = { FTensorShape::Make(BlinkParametersShapeData) };
+	BlinkParameters.SetNumUninitialized(BlinkParametersShape[0].Volume());
+
+	const uint32 NumOutputHeadControls = static_cast<uint32>(ModelHeadControls.Num());
+
+	TArray<float> HeadParameters;
+	TArray<uint32, TInlineAllocator<3>> HeadParametersShapeData = { 1, NumFrames,  NumOutputHeadControls };
+	TArray<FTensorShape, TInlineAllocator<1>> HeadParametersShape = { FTensorShape::Make(HeadParametersShapeData) };
+	HeadParameters.SetNumUninitialized(HeadParametersShape[0].Volume());
+
+	void* FaceParametersPtr = static_cast<void*>(FaceParameters.GetData());
+	void* BlinkParametersPtr = static_cast<void*>(BlinkParameters.GetData());
+	void* HeadParametersPtr = static_cast<void*>(HeadParameters.GetData());
+
+	TArray<FTensorBindingCPU, TInlineAllocator<2>> OutputBindings = {
+		{FaceParametersPtr, FaceParameters.Num() * sizeof(float)},
+		{BlinkParametersPtr, BlinkParameters.Num() * sizeof(float)},
+		{HeadParametersPtr, HeadParameters.Num() * sizeof(float) }
+	};
+
+	if (RigLogicPredictor->RunSync(InputBindings, OutputBindings) != IModelInstanceCPU::ESetInputTensorShapesStatus::Ok)
+	{
+		UE_LOG(LogTemp, Error, TEXT("The rig logic model failed to execute"));
+		return false;
+	}
+
+	OutRigLogicValues = MoveTemp(FaceParameters);
+	OutRigLogicBlinkValues = MoveTemp(BlinkParameters);
+	OutRigLogicHeadValues = MoveTemp(HeadParameters);
+
+	return true;
+}
+
+TArray<FSpeech2Face::FAnimationFrame> ResampleAnimation(TArrayView<const float> InRawAnimation, TArrayView<const FString> InRigControlNames, uint32 ControlNum, float InOutputFps)
+{
+	const uint32 RawFrameCount = InRawAnimation.Num() / ControlNum;
+	const float AnimationLengthSec = RawFrameCount * RigLogicPredictorFrameDuration;
+	const uint32 ResampledFrameCount = FMath::FloorToInt32(AnimationLengthSec * InOutputFps);
+
+	// Resample using linear interpolation
+	TArray<FSpeech2Face::FAnimationFrame> ResampledAnimation;
+	ResampledAnimation.AddDefaulted(ResampledFrameCount);
+
+	for (uint32 ResampledFrameIndex = 0; ResampledFrameIndex < ResampledFrameCount; ++ResampledFrameIndex)
+	{
+		// Get corresponding raw frame time
+		const float FrameStartSec = ResampledFrameIndex / InOutputFps;
+		const float RawFrameIndex = FMath::Clamp(FrameStartSec * RigLogicPredictorOutputFps, 0, RawFrameCount - 1);
+
+		// Get nearest full frames and distance between the two
+		const uint32 PrevRawFrameIndex = FMath::FloorToInt32(RawFrameIndex);
+		const uint32 NextRawFrameIndex = FMath::CeilToInt32(RawFrameIndex);
+		const float RawFramesDelta = RawFrameIndex - PrevRawFrameIndex;
+
+		// Add interpolated control values for the given frames
+		ResampledAnimation[ResampledFrameIndex].Reserve(ControlNum);
+		for (uint32 ControlIndex = 0; ControlIndex < ControlNum; ++ControlIndex)
+		{
+			const float PrevRawControlValue = InRawAnimation[PrevRawFrameIndex * ControlNum + ControlIndex];
+			const float NextRawControlValue = InRawAnimation[NextRawFrameIndex * ControlNum + ControlIndex];
+			const float ResampledValue = FMath::Lerp(PrevRawControlValue, NextRawControlValue, RawFramesDelta);
+
+			ResampledAnimation[ResampledFrameIndex].Add(InRigControlNames[ControlIndex], ResampledValue);
+		}
+	}
+
+	return ResampledAnimation;
+}
+
 void URuntimeSpeechToFaceAsync::Activate()
 {
 	if (!(AudioExtractor.IsValid() && RigLogicPredictor.IsValid()))
@@ -274,6 +447,14 @@ void URuntimeSpeechToFaceAsync::Activate()
 
 	bIsProcessing = true;
 
+	const int NumFrames = static_cast<int>(SoundWave->Duration * 30);
+
+	Anim = NewObject<URuntimeAnimation>(GetTransientPackage(), URuntimeAnimation::StaticClass(), TEXT("FaceAnim"));
+	Anim->Duration = SoundWave->Duration;
+
+	AnimationData.Reset(NumFrames);
+	AnimationData.AddDefaulted(NumFrames);
+
 	// Step 1: get PCM data
 	TArray<uint8> PcmData;
 	uint16 ChannelNum;
@@ -287,6 +468,54 @@ void URuntimeSpeechToFaceAsync::Activate()
 		SetReadyToDestroy();
 		return;
 	}
+
+	// Step 2: extract audio features
+	TArray<float> ExtractedAudioData;
+	if (!ExtractAudioFeatures(Samples, AudioExtractor, ExtractedAudioData))
+	{
+		OnFailed.Broadcast(nullptr, TEXT("RuntimeSpeechToFaceAsync: ExtractAudioFeatures."));
+		SetReadyToDestroy();
+		return;
+	}
+
+	// Step 3: run rig logic predictor to get animation data
+	TArray<float> RigLogicValues;
+	TArray<float> RigLogicBlinkValues;
+	TArray<float> RigLogicHeadValues;
+
+	if (!RunPredictor(RigLogicPredictor, RigControlNames.Num(), BlinkRigControlNames.Num(), Samples.Num(), ExtractedAudioData, Mood, MoodIntensity, RigLogicValues, RigLogicBlinkValues, RigLogicHeadValues))
+	{
+		OnFailed.Broadcast(nullptr, TEXT("RuntimeSpeechToFaceAsync: RunPredictor."));
+		SetReadyToDestroy();
+		return;
+	}
+
+	// Step 4: resample animation
+	TArray<FSpeech2Face::FAnimationFrame> OutAnimationData = ResampleAnimation(RigLogicValues, RigControlNames, RigControlNames.Num(), 30.0f);
+	if (OutAnimationData.Num())
+	{
+		Anim->FloatCurves.Reserve(OutAnimationData[0].Num());
+		for (const auto& Sample : OutAnimationData[0])
+		{
+			Anim->FloatCurves.Add(FFloatCurve(*Sample.Key, 0));
+		}
+	}
+	for (int32 FrameIndex = 0; FrameIndex < NumFrames; ++FrameIndex)
+	{
+		int CurveIndex = 0;
+		const float FrameTime = FrameIndex / 30.0f;
+		for (const TPair<FString, float>& Sample : OutAnimationData[FrameIndex])
+		{
+			Anim->FloatCurves[CurveIndex].FloatCurve.AddKey(FrameTime, Sample.Value);
+			++CurveIndex;
+		}
+	}
+
+	/*OnCompleted.Broadcast(Anim, TEXT("Success"));
+	Pipeline.Reset();
+	bIsProcessing = false;
+	SetReadyToDestroy();
+	return;*/
 
 	SpeechToAnimSolver->SetMood(Mood);
 	SpeechToAnimSolver->SetMoodIntensity(MoodIntensity);
@@ -309,10 +538,7 @@ void URuntimeSpeechToFaceAsync::Activate()
 	OnFrameComplete.AddUObject(this, &URuntimeSpeechToFaceAsync::FrameComplete);
 	OnProcessComplete.AddUObject(this, &URuntimeSpeechToFaceAsync::ProcessComplete);
 
-	const int NumFrames = static_cast<int>(SoundWave->Duration * 30);
-
-	AnimationData.Reset(NumFrames);
-	AnimationData.AddDefaulted(NumFrames);
+	
 
 	UE::MetaHuman::Pipeline::FPipelineRunParameters PipelineRunParameters;
 	PipelineRunParameters.SetStartFrame(0);
@@ -347,7 +573,7 @@ void URuntimeSpeechToFaceAsync::ProcessComplete(TSharedPtr<UE::MetaHuman::Pipeli
 	const FFrameRate FrameRate{ 30, 1 };
 	const int NumFrames = static_cast<int>(SoundWave->Duration * 30);
 
-	URuntimeAnimation* Anim = NewObject<URuntimeAnimation>(GetTransientPackage(), URuntimeAnimation::StaticClass(), TEXT("FaceAnim"));
+	Anim = NewObject<URuntimeAnimation>(GetTransientPackage(), URuntimeAnimation::StaticClass(), TEXT("FaceAnim"));
 	Anim->Duration = SoundWave->Duration;
 
 	for (int32 FrameIndex = 0; FrameIndex < NumFrames; ++FrameIndex)
