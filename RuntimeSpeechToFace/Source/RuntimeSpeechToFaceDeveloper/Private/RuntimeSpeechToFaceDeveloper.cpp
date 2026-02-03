@@ -1,22 +1,33 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "RuntimeSpeechToFaceDeveloper.h"
+#include "RuntimeSpeechToFaceSettings.h"
+#include "ISettingsModule.h"
 
 #define LOCTEXT_NAMESPACE "FRuntimeSpeechToFaceDeveloperModule"
 
 void FRuntimeSpeechToFaceDeveloperModule::StartupModule()
 {
-	// This code will execute after your module is loaded into memory; the exact timing is specified in the .uplugin file per-module
-	
+	// Register settings
+	if (ISettingsModule* SettingsModule = FModuleManager::GetModulePtr<ISettingsModule>("Settings"))
+	{
+		SettingsModule->RegisterSettings("Project", "Plugins", "RuntimeSpeechToFace",
+			LOCTEXT("RuntimeSpeechToFaceSettingsName", "Runtime Speech To Face"),
+			LOCTEXT("RuntimeSpeechToFaceSettingsDescription", "Configure the Runtime Speech To Face plugin settings"),
+			GetMutableDefault<URuntimeSpeechToFaceSettings>()
+		);
+	}
 }
 
 void FRuntimeSpeechToFaceDeveloperModule::ShutdownModule()
 {
-	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
-	// we call this function before unloading the module.
-	
+	// Unregister settings
+	if (ISettingsModule* SettingsModule = FModuleManager::GetModulePtr<ISettingsModule>("Settings"))
+	{
+		SettingsModule->UnregisterSettings("Project", "Plugins", "RuntimeSpeechToFace");
+	}
 }
 
 #undef LOCTEXT_NAMESPACE
-	
+
 IMPLEMENT_MODULE(FRuntimeSpeechToFaceDeveloperModule, RuntimeSpeechToFaceDeveloper)

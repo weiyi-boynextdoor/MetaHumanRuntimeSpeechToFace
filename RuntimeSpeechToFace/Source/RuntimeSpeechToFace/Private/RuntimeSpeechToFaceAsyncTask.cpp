@@ -11,7 +11,7 @@
 #include "SampleBuffer.h"
 #include "DataDefs.h"
 #include "GuiToRawControlsUtils.h"
-#include "UObject/SoftObjectPath.h"
+#include "RuntimeSpeechToFaceSettings.h"
 
 using FloatSamples = Audio::VectorOps::FAlignedFloatBuffer;
 
@@ -418,8 +418,8 @@ void URuntimeSpeechToFaceAsync::Activate()
 {
 	if (!(AudioExtractor.IsValid() && RigLogicPredictor.IsValid()))
 	{
-		FSoftObjectPath AudioEncoder = FString(TEXT("/MetaHuman/Speech2Face/NNE_AudioDrivenAnimation_AudioEncoder.NNE_AudioDrivenAnimation_AudioEncoder"));
-		FSoftObjectPath AnimationDecoder = FString(TEXT("/MetaHuman/Speech2Face/NNE_AudioDrivenAnimation_AnimationDecoder.NNE_AudioDrivenAnimation_AnimationDecoder"));
+		FSoftObjectPath AudioEncoder = GetDefault<URuntimeSpeechToFaceSettings>()->AudioEncoder;
+		FSoftObjectPath AnimationDecoder = GetDefault<URuntimeSpeechToFaceSettings>()->AnimationDecoder;
 		AudioExtractor = TryLoadModelData(AudioEncoder);
 		RigLogicPredictor = TryLoadModelData(AnimationDecoder);
 	}
@@ -464,6 +464,7 @@ void URuntimeSpeechToFaceAsync::Activate()
 	{
 		OnFailed.Broadcast(nullptr, TEXT("RuntimeSpeechToFaceAsync: GetFloatSamples."));
 		SetReadyToDestroy();
+		bIsProcessing = false;
 		return;
 	}
 
@@ -473,6 +474,7 @@ void URuntimeSpeechToFaceAsync::Activate()
 	{
 		OnFailed.Broadcast(nullptr, TEXT("RuntimeSpeechToFaceAsync: ExtractAudioFeatures."));
 		SetReadyToDestroy();
+		bIsProcessing = false;
 		return;
 	}
 
@@ -485,6 +487,7 @@ void URuntimeSpeechToFaceAsync::Activate()
 	{
 		OnFailed.Broadcast(nullptr, TEXT("RuntimeSpeechToFaceAsync: RunPredictor."));
 		SetReadyToDestroy();
+		bIsProcessing = false;
 		return;
 	}
 
@@ -513,6 +516,7 @@ void URuntimeSpeechToFaceAsync::Activate()
 	OnCompleted.Broadcast(Anim, TEXT("Success"));
 	bHasProcessingInstance = false;
 	SetReadyToDestroy();
+	bIsProcessing = false;
 	return;
 }
 
