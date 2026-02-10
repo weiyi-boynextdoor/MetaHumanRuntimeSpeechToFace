@@ -4,6 +4,8 @@
 
 #include "Modules/ModuleManager.h"
 
+DECLARE_LOG_CATEGORY_EXTERN(LogRuntimeSpeechToFace, Log, All);
+
 class FRuntimeSpeechToFaceModule : public IModuleInterface
 {
 public:

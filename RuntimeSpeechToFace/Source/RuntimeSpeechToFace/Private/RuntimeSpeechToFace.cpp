@@ -4,6 +4,8 @@
 
 #define LOCTEXT_NAMESPACE "FRuntimeSpeechToFaceModule"
 
+DEFINE_LOG_CATEGORY(LogRuntimeSpeechToFace);
+
 void FRuntimeSpeechToFaceModule::StartupModule()
 {	
 }

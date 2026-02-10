@@ -17,6 +17,8 @@
 #define DEFAULT_PROCEDURAL_SOUNDWAVE_BUFFER_SIZE 1024
 #endif
 
+DECLARE_DYNAMIC_DELEGATE_OneParam(FOnSoundWaveDelegate, USpeechSoundWave*, SoundWave);
+
 UCLASS(MinimalAPI)
 class USpeechSoundWave : public USoundWave
 {
@@ -46,6 +48,9 @@ protected:
 
 public:
 	USpeechSoundWave(const FObjectInitializer& ObjectInitializer);
+
+	UFUNCTION(BlueprintCallable)
+	static void CreateSpeechSoundWaveFromFile(const FString& FilePath, const FOnSoundWaveDelegate& SoundWaveCallback);
 
 	/** Make a copy that shares AudioBuffer **/
 	UFUNCTION(BlueprintCallable)

@@ -44,6 +44,7 @@ public class RuntimeSpeechToFace : ModuleRules
 				"NNE",
 				"SignalProcessing",
 				"AudioPlatformConfiguration",
+				"VorbisAudioDecoder",
 				// ... add private dependencies that you statically link with here ...
 			}
 		);
