@@ -54,12 +54,12 @@ USpeechSoundWave* USpeechSoundWave::MakeShallowCopy() const
 	return NewSoundWave;
 }
 
-void USpeechSoundWave::SetAudio(TArray<uint8> PCMData)
+void USpeechSoundWave::SetAudio(const TSharedPtr<TArray<uint8>>& PCMData)
 {
 	Audio::EAudioMixerStreamDataFormat::Type Format = GetGeneratedPCMDataFormat();
 	SampleByteSize = (Format == Audio::EAudioMixerStreamDataFormat::Int16) ? 2 : 4;
 
-	auto BufferSize = PCMData.Num();
+	auto BufferSize = PCMData->Num();
 	if (BufferSize == 0 || !ensure((BufferSize % SampleByteSize) == 0))
 	{
 		return;
@@ -67,10 +67,18 @@ void USpeechSoundWave::SetAudio(TArray<uint8> PCMData)
 
 	{
 		FWriteScopeLock WriteLock(AudioLock);
-		AudioBuffer = MakeShared<TArray<uint8>>(MoveTemp(PCMData));
+		AudioBuffer = PCMData;
 	}
+}
 
-	AvailableByteCount.Add(BufferSize);
+TArray<uint8> USpeechSoundWave::GetPCMData() const
+{
+	FReadScopeLock ReadLock(AudioLock);
+	if (AudioBuffer)
+	{
+		return *AudioBuffer;
+	}
+	return {};
 }
 
 int32 USpeechSoundWave::GeneratePCMData(uint8* PCMData, const int32 SamplesNeeded)
@@ -108,7 +116,7 @@ int32 USpeechSoundWave::GeneratePCMData(uint8* PCMData, const int32 SamplesNeede
 	return BytesCopied;
 }
 
-void USpeechSoundWave::Seek(uint32_t Index)
+void USpeechSoundWave::Seek(int Index)
 {
 	FWriteScopeLock WriteLock(AudioLock);
 	SampleIndex = Index;
@@ -251,7 +259,7 @@ void USpeechSoundWave::CreateSpeechSoundWaveFromFile(const FString& FilePath, co
             {
                 // UE runtime only supports wav or ogg
             }
-            AsyncTask(ENamedThreads::GameThread, [SoundWaveCallback, bSuccess, SoundWaveInfo, FilePath]()
+            AsyncTask(ENamedThreads::GameThread, [SoundWaveCallback, bSuccess, SoundWaveInfo, FilePath]() mutable
                 {
                     if (!bSuccess)
                     {
@@ -260,7 +268,7 @@ void USpeechSoundWave::CreateSpeechSoundWaveFromFile(const FString& FilePath, co
                         return;
                     }
 					USpeechSoundWave* SoundWave = NewObject<USpeechSoundWave>();
-                    SoundWave->SetAudio(SoundWaveInfo.PCMData);
+                    SoundWave->SetAudio(MakeShared<TArray<uint8>>(MoveTemp(SoundWaveInfo.PCMData)));
                     SoundWave->Duration = SoundWaveInfo.Duration;
                     SoundWave->SetImportedSampleRate(SoundWaveInfo.SampleRate);
                     SoundWave->SetSampleRate(SoundWaveInfo.SampleRate);

@@ -12,6 +12,7 @@
 #include "DataDefs.h"
 #include "GuiToRawControlsUtils.h"
 #include "RuntimeSpeechToFaceSettings.h"
+#include "SpeechSoundWave.h"
 
 using FloatSamples = Audio::VectorOps::FAlignedFloatBuffer;
 
@@ -99,15 +100,26 @@ static bool GetImportedSoundWaveData(USoundWave* SoundWave, TArray<uint8>& OutRa
 	}
 	OutSampleRate = SoundWave->GetSampleRateForCurrentPlatform();
 	OutNumChannels = SoundWave->NumChannels;
+
+	USpeechSoundWave* SpeechSoundWave = Cast<USpeechSoundWave>(SoundWave);
+	if (SpeechSoundWave)
+	{
+		OutRawPCMData = SpeechSoundWave->GetPCMData();
+		return true;
+	}
+
 	int BufferLen = FMath::CeilToInt(sizeof(int16) * OutSampleRate * OutNumChannels * SoundWave->Duration);
 	OutRawPCMData.Reserve(BufferLen);
 
+	if (SoundWave->bProcedural)
+	{
+		OutRawPCMData.Reset(BufferLen);
+		SoundWave->GeneratePCMData(OutRawPCMData.GetData(), BufferLen);
+		return true;
+	}
+
 	FName RuntimeFormat = SoundWave->GetRuntimeFormat();
 	TArray<uint8> RawPCMData;
-
-#if WITH_EDITOR
-	SoundWave->GetImportedSoundWaveData(RawPCMData, OutSampleRate, OutNumChannels);
-#endif
 
 	FByteBulkData* BulkData = SoundWave->GetCompressedData(RuntimeFormat);
 	if (!BulkData || BulkData->GetBulkDataSize() <= 0)

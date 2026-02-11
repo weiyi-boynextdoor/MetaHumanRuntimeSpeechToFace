@@ -25,10 +25,7 @@ class USpeechSoundWave : public USoundWave
 	GENERATED_BODY()
 
 private:
-	FRWLock AudioLock;
-
-	// The amount of bytes queued and not yet consumed
-	FThreadSafeCounter AvailableByteCount;
+	mutable FRWLock AudioLock;
 
 	// The actual audio buffer that can be consumed. QueuedAudio is fed to this buffer. Accessed only audio thread.
 	TSharedPtr<TArray<uint8>> AudioBuffer;
@@ -56,6 +53,9 @@ public:
 	UFUNCTION(BlueprintCallable)
 	USpeechSoundWave* MakeShallowCopy() const;
 
+	UFUNCTION(BlueprintCallable)
+	void Seek(int Index);
+
 	//~ Begin UObject Interface. 
 	virtual void Serialize(FArchive& Ar) override;
 	virtual void GetAssetRegistryTags(FAssetRegistryTagsContext Context) const override;
@@ -75,9 +75,9 @@ public:
 	//~ End USoundWave Interface.
 
 	/** Set AudioBuffer data */
-	void SetAudio(TArray<uint8> PCMData);
+	void SetAudio(const TSharedPtr<TArray<uint8>>& PCMData);
 
-	void Seek(uint32_t Index);
+	TArray<uint8> GetPCMData() const;
 
 	/** Size in bytes of a single sample of audio in the procedural audio buffer. */
 	int32 SampleByteSize;
