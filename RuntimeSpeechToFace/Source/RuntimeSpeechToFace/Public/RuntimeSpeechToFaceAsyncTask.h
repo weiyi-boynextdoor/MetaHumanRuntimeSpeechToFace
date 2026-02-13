@@ -34,6 +34,9 @@ public:
 	void BeginDestroy() override;
 
 private:
+	void FailWithReason(const FString& Reason);
+
+private:
 	bool bIsProcessing = false;
 	TObjectPtr<USoundWave> SoundWave;
 	TObjectPtr<USkeleton> Skeleton;
@@ -42,7 +45,7 @@ private:
 
 	TObjectPtr<URuntimeAnimation> Anim;
 
-public:
+private:
 	static bool bHasProcessingInstance;
 
 	static TSharedPtr<UE::NNE::IModelInstanceCPU> AudioExtractor;

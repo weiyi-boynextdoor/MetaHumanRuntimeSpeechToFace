@@ -460,76 +460,75 @@ void URuntimeSpeechToFaceAsync::Activate()
 	bIsProcessing = true;
 	bHasProcessingInstance = true;
 
-	const int NumFrames = static_cast<int>(SoundWave->Duration * 30);
-
 	Anim = NewObject<URuntimeAnimation>(GetTransientPackage(), URuntimeAnimation::StaticClass(), TEXT("FaceAnim"));
 	Anim->Duration = SoundWave->Duration;
 
-	// Step 1: get PCM data
-	TArray<uint8> PcmData;
-	uint16 ChannelNum;
-	uint32 SampleRate;
-	GetImportedSoundWaveData(SoundWave, PcmData, SampleRate, ChannelNum);
-
-	FloatSamples Samples;
-	if (!GetFloatSamples(SoundWave, PcmData, SampleRate, true, 0, 0, Samples))
-	{
-		OnFailed.Broadcast(nullptr, TEXT("RuntimeSpeechToFaceAsync: GetFloatSamples."));
-		SetReadyToDestroy();
-		bIsProcessing = false;
-		return;
-	}
-
-	// Step 2: extract audio features
-	TArray<float> ExtractedAudioData;
-	if (!ExtractAudioFeatures(Samples, AudioExtractor, ExtractedAudioData))
-	{
-		OnFailed.Broadcast(nullptr, TEXT("RuntimeSpeechToFaceAsync: ExtractAudioFeatures."));
-		SetReadyToDestroy();
-		bIsProcessing = false;
-		return;
-	}
-
-	// Step 3: run rig logic predictor to get animation data
-	TArray<float> RigLogicValues;
-	TArray<float> RigLogicBlinkValues;
-	TArray<float> RigLogicHeadValues;
-
-	if (!RunPredictor(RigLogicPredictor, RigControlNames.Num(), BlinkRigControlNames.Num(), Samples.Num(), ExtractedAudioData, Mood, MoodIntensity, RigLogicValues, RigLogicBlinkValues, RigLogicHeadValues))
-	{
-		OnFailed.Broadcast(nullptr, TEXT("RuntimeSpeechToFaceAsync: RunPredictor."));
-		SetReadyToDestroy();
-		bIsProcessing = false;
-		return;
-	}
-
-	// Step 4: resample animation
-	TArray<FAnimationFrame> OutAnimationData = ResampleAnimation(RigLogicValues, RigControlNames, RigControlNames.Num(), 30.0f);
-	for (int32 FrameIndex = 0; FrameIndex < NumFrames; ++FrameIndex)
-	{
-		TMap<FString, float> AnimationFrame = GuiToRawControlsUtils::ConvertGuiToRawControls(OutAnimationData[FrameIndex]);
-		if (FrameIndex == 0)
+	// Generate facial animation in background thread
+	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this]()
 		{
-			for (const auto& Sample : AnimationFrame)
+			const int NumFrames = static_cast<int>(SoundWave->Duration * 30);
+
+			// Step 1: get PCM data
+			TArray<uint8> PcmData;
+			uint16 ChannelNum;
+			uint32 SampleRate;
+			GetImportedSoundWaveData(SoundWave, PcmData, SampleRate, ChannelNum);
+
+			FloatSamples Samples;
+			if (!GetFloatSamples(SoundWave, PcmData, SampleRate, true, 0, 0, Samples))
 			{
-				Anim->FloatCurves.Add(FFloatCurve(*Sample.Key, 0));
+				FailWithReason(TEXT("RuntimeSpeechToFaceAsync: GetFloatSamples."));
+				return;
 			}
-		}
-	
-		int CurveIndex = 0;
-		const float FrameTime = FrameIndex / 30.0f;
-		for (const TPair<FString, float>& Sample : AnimationFrame)
-		{
-			Anim->FloatCurves[CurveIndex].FloatCurve.AddKey(FrameTime, Sample.Value);
-			++CurveIndex;
-		}
-	}
 
-	OnCompleted.Broadcast(Anim, TEXT("Success"));
-	bHasProcessingInstance = false;
-	SetReadyToDestroy();
-	bIsProcessing = false;
-	return;
+			// Step 2: extract audio features
+			TArray<float> ExtractedAudioData;
+			if (!ExtractAudioFeatures(Samples, AudioExtractor, ExtractedAudioData))
+			{
+				FailWithReason(TEXT("RuntimeSpeechToFaceAsync: ExtractAudioFeatures."));
+				return;
+			}
+
+			// Step 3: run rig logic predictor to get animation data
+			TArray<float> RigLogicValues;
+			TArray<float> RigLogicBlinkValues;
+			TArray<float> RigLogicHeadValues;
+
+			if (!RunPredictor(RigLogicPredictor, RigControlNames.Num(), BlinkRigControlNames.Num(), Samples.Num(), ExtractedAudioData, Mood, MoodIntensity, RigLogicValues, RigLogicBlinkValues, RigLogicHeadValues))
+			{
+				FailWithReason(TEXT("RuntimeSpeechToFaceAsync: RunPredictor."));
+				return;
+			}
+
+			// Step 4: resample animation
+			TArray<FAnimationFrame> OutAnimationData = ResampleAnimation(RigLogicValues, RigControlNames, RigControlNames.Num(), 30.0f);
+			for (int32 FrameIndex = 0; FrameIndex < NumFrames; ++FrameIndex)
+			{
+				TMap<FString, float> AnimationFrame = GuiToRawControlsUtils::ConvertGuiToRawControls(OutAnimationData[FrameIndex]);
+				if (FrameIndex == 0)
+				{
+					for (const auto& Sample : AnimationFrame)
+					{
+						Anim->FloatCurves.Add(FFloatCurve(*Sample.Key, 0));
+					}
+				}
+
+				int CurveIndex = 0;
+				const float FrameTime = FrameIndex / 30.0f;
+				for (const TPair<FString, float>& Sample : AnimationFrame)
+				{
+					Anim->FloatCurves[CurveIndex].FloatCurve.AddKey(FrameTime, Sample.Value);
+					++CurveIndex;
+				}
+			}
+			AsyncTask(ENamedThreads::GameThread, [this]()
+				{
+					OnCompleted.Broadcast(Anim, TEXT("Success"));
+					bHasProcessingInstance = false;
+					SetReadyToDestroy();
+					bIsProcessing = false;
+				});
+		});
 }
 
 void URuntimeSpeechToFaceAsync::BeginDestroy()
@@ -539,4 +538,14 @@ void URuntimeSpeechToFaceAsync::BeginDestroy()
 		bHasProcessingInstance = false;
 	}
 	Super::BeginDestroy();
+}
+
+void URuntimeSpeechToFaceAsync::FailWithReason(const FString& Reason)
+{
+	AsyncTask(ENamedThreads::GameThread, [Reason, this]()
+		{
+			OnFailed.Broadcast(nullptr, Reason);
+			SetReadyToDestroy();
+			bIsProcessing = false;
+		});
 }
