@@ -49,6 +49,9 @@ public:
 	UFUNCTION(BlueprintCallable)
 	static void CreateSpeechSoundWaveFromFile(const FString& FilePath, const FOnSoundWaveDelegate& SoundWaveCallback);
 
+	UFUNCTION(BlueprintCallable)
+	static void CreateSpeechSoundWaveFromContentString(const TArray<uint8>& ContentString, const FOnSoundWaveDelegate& SoundWaveCallback);
+
 	/** Make a copy that shares AudioBuffer **/
 	UFUNCTION(BlueprintCallable)
 	USpeechSoundWave* MakeShallowCopy() const;

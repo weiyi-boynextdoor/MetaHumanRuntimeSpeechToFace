@@ -182,7 +182,7 @@ bool USpeechSoundWave::InitAudioResource(FName Format)
 	return true;
 }
 
-static bool GetSoundWaveInfoFromWav(FSpeechSoundWaveInfo& Info, TArray<uint8> RawWaveData)
+static bool GetSoundWaveInfoFromWav(FSpeechSoundWaveInfo& Info, const TArray<uint8>& RawWaveData)
 {
     FWaveModInfo WaveInfo;
     FString ErrorMessage;
@@ -276,5 +276,37 @@ void USpeechSoundWave::CreateSpeechSoundWaveFromFile(const FString& FilePath, co
                     SoundWave->TotalSamples = SoundWaveInfo.TotalSamples;
 					SoundWaveCallback.ExecuteIfBound(SoundWave);
                 });
+		});
+}
+
+void USpeechSoundWave::CreateSpeechSoundWaveFromContentString(const TArray<uint8>& ContentString, const FOnSoundWaveDelegate& SoundWaveCallback)
+{
+	AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [ContentString, SoundWaveCallback]()
+		{
+			double LoadingStartTime = FPlatformTime::Seconds();
+			bool bSuccess = false;
+			FSpeechSoundWaveInfo SoundWaveInfo;
+			if (GetSoundWaveInfoFromWav(SoundWaveInfo, ContentString))
+			{
+				bSuccess = true;
+			}
+			
+			AsyncTask(ENamedThreads::GameThread, [SoundWaveCallback, bSuccess, SoundWaveInfo]() mutable
+				{
+					if (!bSuccess)
+					{
+						UE_LOG(LogRuntimeSpeechToFace, Error, TEXT("Failed to create sound wave from content string"));
+						SoundWaveCallback.ExecuteIfBound(nullptr);
+						return;
+					}
+					USpeechSoundWave* SoundWave = NewObject<USpeechSoundWave>();
+					SoundWave->SetAudio(MakeShared<TArray<uint8>>(MoveTemp(SoundWaveInfo.PCMData)));
+					SoundWave->Duration = SoundWaveInfo.Duration;
+					SoundWave->SetImportedSampleRate(SoundWaveInfo.SampleRate);
+					SoundWave->SetSampleRate(SoundWaveInfo.SampleRate);
+					SoundWave->NumChannels = SoundWaveInfo.NumChannels;
+					SoundWave->TotalSamples = SoundWaveInfo.TotalSamples;
+					SoundWaveCallback.ExecuteIfBound(SoundWave);
+				});
 		});
 }
