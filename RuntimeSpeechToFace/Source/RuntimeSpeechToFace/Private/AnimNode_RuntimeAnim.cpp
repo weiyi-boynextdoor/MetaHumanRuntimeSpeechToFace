@@ -26,6 +26,11 @@ void FAnimNode_RuntimeAnim::Evaluate_AnyThread(FPoseContext& Output)
         FBlendedCurve Curve;
         UE::Anim::FCurveUtils::BuildUnsorted(Curve, CurveMap);
         Output.Curve.Combine(Curve);
+        // UE_LOG(LogTemp, Warning, TEXT("FAnimNode_RuntimeAnim::Evaluate_AnyThread %f / %f"), RuntimeAnimation->CurTime, RuntimeAnimation->Duration);
         RuntimeAnimation->CurTime += DeltaTime;
+        // if (RuntimeAnimation->CurTime >= RuntimeAnimation->Duration)
+        // {
+        //     UE_LOG(LogTemp, Warning, TEXT("FAnimNode_RuntimeAnim finish speech animation"));
+        // }
     }
 }

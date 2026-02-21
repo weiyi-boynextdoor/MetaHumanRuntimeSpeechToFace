@@ -27,7 +27,7 @@ public:
 	FRuntimeSpeechToFaceAsyncDelegate OnFailed;
 
 	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", DisplayName = "Speech To Face Anim"), Category = "RuntimeSpeechToFace")
-	static URuntimeSpeechToFaceAsync* SpeechToFaceAnim(UObject* WorldContextObject, USoundWave* SoundWave, USkeleton* Skeleton, EAudioDrivenAnimationMood Mood = EAudioDrivenAnimationMood::AutoDetect, float MoodIntensity = 1.0f);
+	static URuntimeSpeechToFaceAsync* SpeechToFaceAnim(UObject* WorldContextObject, USoundWave* SoundWave, USkeleton* Skeleton, EAudioDrivenAnimationMood Mood = EAudioDrivenAnimationMood::AutoDetect, float MoodIntensity = 1.0f, bool bGenerateBlinks = false, bool bGenerateHeadAnimation = false);
 
 	void Activate() override;
 
@@ -42,6 +42,8 @@ private:
 	TObjectPtr<USkeleton> Skeleton;
 	EAudioDrivenAnimationMood Mood = EAudioDrivenAnimationMood::AutoDetect;
 	float MoodIntensity = 1.0f;
+	bool bGenerateBlinks = false;
+	bool bGenerateHeadAnimation = false;
 
 	TObjectPtr<URuntimeAnimation> Anim;
 

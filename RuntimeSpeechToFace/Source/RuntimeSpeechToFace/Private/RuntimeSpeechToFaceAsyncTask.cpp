@@ -25,6 +25,7 @@ static constexpr float RigLogicPredictorOutputFps = 50.0f;
 static constexpr float RigLogicPredictorMaxAudioSamples = AudioEncoderSampleRateHz * 30;
 static constexpr float RigLogicPredictorFrameDuration = 1.f / RigLogicPredictorOutputFps;
 static constexpr float SamplesPerFrame = AudioEncoderSampleRateHz * RigLogicPredictorFrameDuration;
+static constexpr float AnimationOutputFps = 30.0f;
 
 static constexpr int32 StreamBufferSize = 19200;
 
@@ -81,7 +82,7 @@ static TSharedPtr<UE::NNE::IModelInstanceCPU> TryLoadModelData(const FSoftObject
 	return ModelInstance;
 }
 
-URuntimeSpeechToFaceAsync* URuntimeSpeechToFaceAsync::SpeechToFaceAnim(UObject* WorldContextObject, USoundWave* SoundWave, USkeleton* Skeleton, EAudioDrivenAnimationMood Mood, float MoodIntensity)
+URuntimeSpeechToFaceAsync* URuntimeSpeechToFaceAsync::SpeechToFaceAnim(UObject* WorldContextObject, USoundWave* SoundWave, USkeleton* Skeleton, EAudioDrivenAnimationMood Mood, float MoodIntensity, bool bGenerateBlinks, bool bGenerateHeadAnimation)
 {
 	URuntimeSpeechToFaceAsync* Action = NewObject<URuntimeSpeechToFaceAsync>();
 	Action->RegisterWithGameInstance(WorldContextObject);
@@ -89,6 +90,8 @@ URuntimeSpeechToFaceAsync* URuntimeSpeechToFaceAsync::SpeechToFaceAnim(UObject* 
 	Action->Skeleton = Skeleton;
 	Action->Mood = Mood;
 	Action->MoodIntensity = MoodIntensity;
+	Action->bGenerateBlinks = bGenerateBlinks;
+	Action->bGenerateHeadAnimation = bGenerateHeadAnimation;
 	return Action;
 }
 
@@ -501,8 +504,20 @@ void URuntimeSpeechToFaceAsync::Activate()
 			}
 
 			// Step 4: resample animation
-			TArray<FAnimationFrame> OutAnimationData = ResampleAnimation(RigLogicValues, RigControlNames, RigControlNames.Num(), 30.0f);
-			for (int32 FrameIndex = 0; FrameIndex < NumFrames; ++FrameIndex)
+			TArray<FAnimationFrame> OutAnimationData = ResampleAnimation(RigLogicValues, RigControlNames, RigControlNames.Num(), AnimationOutputFps);
+			if (bGenerateBlinks)
+			{
+				TArray<FAnimationFrame> BlinkAnimation = ResampleAnimation(RigLogicBlinkValues, BlinkRigControlNames, BlinkRigControlNames.Num(), AnimationOutputFps);
+				for (int32 FrameIndex = 0; FrameIndex < BlinkAnimation.Num(); FrameIndex++)
+				{
+					for (const FString& BlinkControlName : BlinkRigControlNames)
+					{
+						OutAnimationData[FrameIndex][BlinkControlName] += BlinkAnimation[FrameIndex][BlinkControlName];
+					}
+				}
+			}
+
+			for (int32 FrameIndex = 0; FrameIndex < OutAnimationData.Num(); ++FrameIndex)
 			{
 				TMap<FString, float> AnimationFrame = GuiToRawControlsUtils::ConvertGuiToRawControls(OutAnimationData[FrameIndex]);
 				if (FrameIndex == 0)
@@ -521,6 +536,7 @@ void URuntimeSpeechToFaceAsync::Activate()
 					++CurveIndex;
 				}
 			}
+
 			AsyncTask(ENamedThreads::GameThread, [this]()
 				{
 					OnCompleted.Broadcast(Anim, TEXT("Success"));
